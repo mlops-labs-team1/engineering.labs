@@ -9,6 +9,7 @@ import requests
 import torch
 import torch.nn.functional as F
 from labml import experiment, tracker, monit
+from labml.logger import inspect
 from sklearn.model_selection import train_test_split
 from torch import nn
 from torch.utils.data import Dataset, DataLoader
@@ -202,14 +203,17 @@ class NewsClassifierTrainer:
 
     def save_model(self, model):
         with monit.section('Save model'):
-            if os.path.exists(self.model_path):
-                shutil.rmtree(self.model_path)
-            mlflow.pytorch.save_model(
-                model,
-                path=self.model_path,
-                requirements_file="requirements.txt",
-                extra_files=["class_mapping.json", "bert_base_uncased_vocab.txt"],
-            )
+            mlflow.pytorch.log_model(model, "bert-model",
+                                     registered_model_name="BertModel",
+                                     extra_files=["class_mapping.json", "bert_base_uncased_vocab.txt"])
+            # if os.path.exists(self.model_path):
+            #     shutil.rmtree(self.model_path)
+            # mlflow.pytorch.save_model(
+            #     model,
+            #     path=self.model_path,
+            #     requirements_file="requirements.txt",
+            #     extra_files=["class_mapping.json", "bert_base_uncased_vocab.txt"],
+            # )
 
     def start_training(self, model):
         """
@@ -217,89 +221,64 @@ class NewsClassifierTrainer:
 
         :param model: Instance of the NewsClassifier class
         """
-        best_accuracy = 0
+        best_loss = float('inf')
 
         for epoch in monit.loop(self.epochs):
-            self.train_epoch(model)
+            with tracker.namespace('train'):
+                self.train_epoch(model, self.train_data_loader, 'train')
 
             with tracker.namespace('valid'):
-                val_acc = self.eval_model(model, self.val_data_loader)
+                _, val_loss = self.train_epoch(model, self.val_data_loader, 'valid')
 
-            if val_acc > best_accuracy:
-                best_accuracy = val_acc
+            if val_loss < best_loss:
+                best_loss = val_loss
 
                 if self.is_save_model:
                     self.save_model(model)
 
             tracker.new_line()
 
-    def train_epoch(self, model):
+    def train_epoch(self, model: nn.Module, data_loader: DataLoader, name: str):
         """
-        Training process happens and accuracy is returned as output
-
-        :param model: Instance of the NewsClassifier class
+        Train/Validate for an epoch
         """
 
-        model.train()
+        model.train(name == 'train')
         correct_predictions = 0
         total = 0
+        total_loss = 0
 
-        for i, data in monit.enum('Train', self.train_data_loader):
-            input_ids = data["input_ids"].to(self.device)
-            attention_mask = data["attention_mask"].to(self.device)
-            targets = data["targets"].to(self.device)
-
-            outputs = model(input_ids=input_ids, attention_mask=attention_mask)
-
-            _, preds = torch.max(outputs, dim=1)
-            loss = self.loss_fn(outputs, targets)
-
-            correct_predictions += torch.sum(preds == targets).item()
-            total += len(preds)
-            tracker.add('loss.train', loss)
-            tracker.add_global_step(len(preds))
-
-            loss.backward()
-            nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
-            self.optimizer.step()
-            self.scheduler.step()
-            self.optimizer.zero_grad()
-
-            if (i + 1) % 10 == 0:
-                tracker.save()
-
-        tracker.save('accuracy.train', correct_predictions / total)
-
-    def eval_model(self, model, data_loader):
-        """
-        Validation process happens and validation / test accuracy is returned as output
-
-        :param model: Instance of the NewsClassifier class
-        :param data_loader: Data loader for either test / validation dataset
-
-        :result: output - Accuracy of the model after testing
-        """
-        model.eval()
-
-        correct_predictions = 0
-        total = 0
-
-        with torch.no_grad():
-            for d in monit.iterate('Valid', data_loader):
-                input_ids = d["input_ids"].to(self.device)
-                attention_mask = d["attention_mask"].to(self.device)
-                targets = d["targets"].to(self.device)
+        with torch.set_grad_enabled(name == 'train'):
+            for i, data in monit.enum(name, data_loader):
+                input_ids = data["input_ids"].to(self.device)
+                attention_mask = data["attention_mask"].to(self.device)
+                targets = data["targets"].to(self.device)
 
                 outputs = model(input_ids=input_ids, attention_mask=attention_mask)
                 _, preds = torch.max(outputs, dim=1)
 
                 loss = self.loss_fn(outputs, targets)
+                total_loss += loss.item() * len(preds)
+
                 correct_predictions += torch.sum(preds == targets).item()
                 total += len(preds)
                 tracker.add('loss.', loss)
+                if name == 'train':
+                    tracker.add_global_step(len(preds))
+
+                    loss.backward()
+                    nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+                    self.optimizer.step()
+                    self.optimizer.zero_grad()
+
+                if (i + 1) % 10 == 0:
+                    tracker.save()
 
         tracker.save('accuracy.', correct_predictions / total)
-        return correct_predictions / total
+        mlflow.log_metric(f"{name}_acc", float(correct_predictions / total), step=tracker.get_global_step())
+        mlflow.log_metric(f"{name}_loss", float(total_loss / total), step=tracker.get_global_step())
+
+        return correct_predictions / total, total_loss / total
 
     def get_predictions(self, model, data_loader):
         """
@@ -371,7 +350,7 @@ def main():
     parser.add_argument(
         "--num_samples",
         type=int,
-        default=120_000,
+        default=1_000,
         metavar="N",
         help="Number of samples to be used for training "
              "and evaluation steps (default: 15000) Maximum:100000",
@@ -398,9 +377,12 @@ def main():
     args = parser.parse_args()
     experiment.configs(args.__dict__)
 
-    with experiment.start():
-        mlflow.start_run()
+    mlflow.set_tracking_uri("http://localhost:5005")
+    mlflow.start_run()
+    mlflow.log_param("epochs", args.max_epochs)
+    mlflow.log_param("samples", args.num_samples)
 
+    with experiment.start():
         trainer = NewsClassifierTrainer(epochs=args.max_epochs,
                                         n_samples=args.num_samples,
                                         vocab_file_url=args.vocab_file,
@@ -414,15 +396,18 @@ def main():
         trainer.set_optimizer(model)
         trainer.start_training(model)
 
-        print("TRAINING COMPLETED!!!")
-
         with tracker.namespace('test'):
-            test_acc = trainer.eval_model(model, trainer.test_data_loader)
-            print(test_acc)
+            test_acc, test_loss = trainer.train_epoch(model, trainer.test_data_loader, 'test')
 
         y_review_texts, y_pred, y_pred_probs, y_test = trainer.get_predictions(
             model, trainer.test_data_loader
         )
+
+        inspect(y_review_texts)
+        inspect(torch.stack((y_pred, y_test), dim=1))
+
+        mlflow.log_metric("test_acc", float(test_acc), step=tracker.get_global_step())
+        mlflow.log_metric("test_loss", float(test_loss), step=tracker.get_global_step())
 
         mlflow.end_run()
 

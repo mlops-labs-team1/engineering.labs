@@ -1,7 +1,5 @@
 clean: ## Clean
-	rm -rf models
 	rm -rf logs
-	rm -rf mlruns
 	rm -rf model_store
 
 train:
@@ -17,19 +15,21 @@ torchserve-stop: ## Stop torch serve
 	torchserve --stop
 
 deploy:  ## Deploy trained model
-	mlflow deployments create -t torchserve \
-		-m 'file://$(shell pwd)/models' \
-		--name news_classification_test \
-		-C "MODEL_FILE=news_classifier.py" \
-		-C "HANDLER=news_classifier_handler.py"
+	python -m deploy
+
+mlflow-ui:	## Start MLFlow UI
+	mlflow ui --backend-store-uri sqlite:///mlflow.db \
+		--default-artifact-root ./artifacts
+
+mlflow-server: ## Start MLFlow server
+	mlflow server \
+		--backend-store-uri sqlite:///mlflow.db \
+		--default-artifact-root ./artifacts \
+		--host localhost \
+		--port 5005
 
 predict: ## Make a prediction
-	mlflow deployments predict \
-		--name news_classification_test \
-		--target torchserve \
-		--input-path input.json \
-		--output-path output.json
-	cat output.json
+	python -m predict
 
 help: ## Show this help.
 	@fgrep -h "##" $(MAKEFILE_LIST) | fgrep -v fgrep | sed -e 's/\\$$//' | sed -e 's/##//'

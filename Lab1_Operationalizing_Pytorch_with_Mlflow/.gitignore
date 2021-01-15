@@ -1,0 +1,13 @@
+src/bert-classifier/.idea
+models
+mlruns
+logs
+.data
+.cache
+model_store
+labml_logs
+__pycache__
+artifacts
+*.db
+bert_base_uncased_vocab.txt
+.idea
