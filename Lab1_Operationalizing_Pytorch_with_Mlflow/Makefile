@@ -1,9 +1,12 @@
 clean: ## Clean
 	rm -rf logs
 	rm -rf model_store
+	rm -rf artifacts
+	rm -rf labml_logs
+	rm mlflow.db
 
 train:
-	python news_classifier.py
+	PYTHONPATH=$$PYTHONPATH:./src python -m bert_classifier.train
 
 model_store: ## Create empty model store
 	mkdir model_store
@@ -15,7 +18,7 @@ torchserve-stop: ## Stop torch serve
 	torchserve --stop
 
 deploy:  ## Deploy trained model
-	python -m deploy
+	PYTHONPATH=$$PYTHONPATH:./src python -m bert_classifier.deploy
 
 mlflow-ui:	## Start MLFlow UI
 	mlflow ui --backend-store-uri sqlite:///mlflow.db \
@@ -29,7 +32,7 @@ mlflow-server: ## Start MLFlow server
 		--port 5005
 
 predict: ## Make a prediction
-	python -m predict
+	PYTHONPATH=$$PYTHONPATH:./src python -m bert_classifier.predict
 
 help: ## Show this help.
 	@fgrep -h "##" $(MAKEFILE_LIST) | fgrep -v fgrep | sed -e 's/\\$$//' | sed -e 's/##//'

@@ -1,4 +1,4 @@
-src/bert-classifier/.idea
+src/bert_classifier/.idea
 models
 mlruns
 logs

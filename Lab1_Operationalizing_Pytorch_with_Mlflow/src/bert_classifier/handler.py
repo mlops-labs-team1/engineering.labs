@@ -38,7 +38,7 @@ class NewsClassifierHandler(object):
         # Read model serialize/pt file
         model_pt_path = os.path.join(model_dir, "model.pth")
         # Read model definition file
-        model_def_path = os.path.join(model_dir, "news_classifier.py")
+        model_def_path = os.path.join(model_dir, "train.py")
         if not os.path.isfile(model_def_path):
             raise RuntimeError("Missing the model definition file")
 

@@ -1,6 +1,5 @@
 import argparse
 import os
-import shutil
 
 import mlflow.pytorch
 import numpy as np
@@ -16,14 +15,39 @@ from torch.utils.data import Dataset, DataLoader
 from torchtext.datasets.text_classification import URLS
 from torchtext.utils import download_from_url, extract_archive
 from transformers import (
-    BertModel,
     BertTokenizer,
     AdamW,
     get_linear_schedule_with_warmup,
+    BertModel
 )
 
-class_names = ["World", "Sports", "Business", "Sci/Tech"]
+# from bert_classifier.model import Model
+
 RANDOM_SEED = 42
+
+
+class Model(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.drop = nn.Dropout(p=0.2)
+        self.bert = BertModel.from_pretrained("bert-base-uncased", cache_dir='.cache')
+        for param in self.bert.parameters():
+            param.requires_grad = False
+        self.fc1 = nn.Linear(self.bert.config.hidden_size, 512)
+        self.out = nn.Linear(512, 4)
+
+    def forward(self, input_ids, attention_mask):
+        """
+        :param input_ids: Input sentences from the batch
+        :param attention_mask: Attention mask returned by the encoder
+
+        :return: output - label for the input text
+        """
+        outputs = self.bert(input_ids=input_ids, attention_mask=attention_mask)
+        output = F.relu(self.fc1(outputs.pooler_output))
+        output = self.drop(output)
+        output = self.out(output)
+        return output
 
 
 class AGNewsDataset(Dataset):
@@ -61,30 +85,6 @@ class AGNewsDataset(Dataset):
             "attention_mask": encoding["attention_mask"].flatten(),
             "targets": torch.tensor(target, dtype=torch.long),
         }
-
-
-class Model(nn.Module):
-    def __init__(self):
-        super().__init__()
-        self.drop = nn.Dropout(p=0.2)
-        self.bert = BertModel.from_pretrained("bert-base-uncased", cache_dir='.cache')
-        for param in self.bert.parameters():
-            param.requires_grad = False
-        self.fc1 = nn.Linear(self.bert.config.hidden_size, 512)
-        self.out = nn.Linear(512, len(class_names))
-
-    def forward(self, input_ids, attention_mask):
-        """
-        :param input_ids: Input sentences from the batch
-        :param attention_mask: Attention mask returned by the encoder
-
-        :return: output - label for the input text
-        """
-        outputs = self.bert(input_ids=input_ids, attention_mask=attention_mask)
-        output = F.relu(self.fc1(outputs.pooler_output))
-        output = self.drop(output)
-        output = self.out(output)
-        return output
 
 
 class NewsClassifierTrainer:
@@ -206,14 +206,6 @@ class NewsClassifierTrainer:
             mlflow.pytorch.log_model(model, "bert-model",
                                      registered_model_name="BertModel",
                                      extra_files=["class_mapping.json", "bert_base_uncased_vocab.txt"])
-            # if os.path.exists(self.model_path):
-            #     shutil.rmtree(self.model_path)
-            # mlflow.pytorch.save_model(
-            #     model,
-            #     path=self.model_path,
-            #     requirements_file="requirements.txt",
-            #     extra_files=["class_mapping.json", "bert_base_uncased_vocab.txt"],
-            # )
 
     def start_training(self, model):
         """

@@ -14,3 +14,4 @@ dependencies:
   - transformers
   - torchtext==0.7.0
   - pandas
+  - labml
