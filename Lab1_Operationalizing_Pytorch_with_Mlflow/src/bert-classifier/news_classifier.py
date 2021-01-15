@@ -22,6 +22,7 @@ from transformers import (
 )
 
 class_names = ["World", "Sports", "Business", "Sci/Tech"]
+RANDOM_SEED = 42
 
 
 class AGNewsDataset(Dataset):
@@ -86,9 +87,19 @@ class Model(nn.Module):
 
 
 class NewsClassifierTrainer:
-    def __init__(self, args):
+    def __init__(self, *, epochs: int, n_samples: int, vocab_file_url: str, is_save_model: bool, model_path: str,
+                 batch_size: int = 16,
+                 max_len: int = 160):
+        self.model_path = model_path
+        self.is_save_model = is_save_model
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.EPOCHS = args.max_epochs
+        self.epochs = epochs
+        self.batch_size = batch_size
+        self.max_len = max_len
+        self.n_samples = n_samples
+        self.vocab_file_url = vocab_file_url
+        self.vocab_file = "bert_base_uncased_vocab.txt"
+
         self.df = None
         self.tokenizer = None
         self.df_train = None
@@ -101,11 +112,6 @@ class NewsClassifierTrainer:
         self.total_steps = None
         self.scheduler = None
         self.loss_fn = None
-        self.BATCH_SIZE = 16
-        self.MAX_LEN = 160
-        self.NUM_SAMPLES_COUNT = args.num_samples
-        self.VOCAB_FILE_URL = args.vocab_file
-        self.VOCAB_FILE = "bert_base_uncased_vocab.txt"
 
     @staticmethod
     def process_label(rating):
@@ -133,35 +139,34 @@ class NewsClassifierTrainer:
 
     def prepare_data(self):
         """
-        Creates train, valid and test dataloaders from the csv data
+        Creates train, valid and test data loaders from the csv data
         """
         dataset_tar = download_from_url(URLS["AG_NEWS"], root=".data")
         extracted_files = extract_archive(dataset_tar)
 
         train_csv_path = None
-        for fname in extracted_files:
-            if fname.endswith("train.csv"):
-                train_csv_path = fname
+        for file_name in extracted_files:
+            if file_name.endswith("train.csv"):
+                train_csv_path = file_name
 
         self.df = pd.read_csv(train_csv_path)
 
         self.df.columns = ["label", "title", "description"]
         self.df.sample(frac=1)
-        self.df = self.df.iloc[: self.NUM_SAMPLES_COUNT]
+        self.df = self.df.iloc[: self.n_samples]
 
         self.df["label"] = self.df.label.apply(self.process_label)
 
-        if not os.path.isfile(self.VOCAB_FILE):
-            filePointer = requests.get(self.VOCAB_FILE_URL, allow_redirects=True)
-            if filePointer.ok:
-                with open(self.VOCAB_FILE, "wb") as f:
-                    f.write(filePointer.content)
+        if not os.path.isfile(self.vocab_file):
+            file_pointer = requests.get(self.vocab_file_url, allow_redirects=True)
+            if file_pointer.ok:
+                with open(self.vocab_file, "wb") as f:
+                    f.write(file_pointer.content)
             else:
                 raise RuntimeError("Error in fetching the vocab file")
 
-        self.tokenizer = BertTokenizer(self.VOCAB_FILE)
+        self.tokenizer = BertTokenizer(self.vocab_file)
 
-        RANDOM_SEED = 42
         np.random.seed(RANDOM_SEED)
         torch.manual_seed(RANDOM_SEED)
 
@@ -173,13 +178,13 @@ class NewsClassifierTrainer:
         )
 
         self.train_data_loader = self.create_data_loader(
-            self.df_train, self.tokenizer, self.MAX_LEN, self.BATCH_SIZE
+            self.df_train, self.tokenizer, self.max_len, self.batch_size
         )
         self.val_data_loader = self.create_data_loader(
-            self.df_val, self.tokenizer, self.MAX_LEN, self.BATCH_SIZE
+            self.df_val, self.tokenizer, self.max_len, self.batch_size
         )
         self.test_data_loader = self.create_data_loader(
-            self.df_test, self.tokenizer, self.MAX_LEN, self.BATCH_SIZE
+            self.df_test, self.tokenizer, self.max_len, self.batch_size
         )
 
     def set_optimizer(self, model):
@@ -187,7 +192,7 @@ class NewsClassifierTrainer:
         Sets the optimizer and scheduler functions
         """
         self.optimizer = AdamW(model.parameters(), lr=1e-3, correct_bias=False)
-        self.total_steps = len(self.train_data_loader) * self.EPOCHS
+        self.total_steps = len(self.train_data_loader) * self.epochs
 
         self.scheduler = get_linear_schedule_with_warmup(
             self.optimizer, num_warmup_steps=0, num_training_steps=self.total_steps
@@ -195,26 +200,26 @@ class NewsClassifierTrainer:
 
         self.loss_fn = nn.CrossEntropyLoss().to(self.device)
 
-    def save_model(self):
+    def save_model(self, model):
         with monit.section('Save model'):
-            if os.path.exists(args.model_save_path):
-                shutil.rmtree(args.model_save_path)
+            if os.path.exists(self.model_path):
+                shutil.rmtree(self.model_path)
             mlflow.pytorch.save_model(
                 model,
-                path=args.model_save_path,
+                path=self.model_path,
                 requirements_file="requirements.txt",
                 extra_files=["class_mapping.json", "bert_base_uncased_vocab.txt"],
             )
 
-    def start_training(self, model, args):
+    def start_training(self, model):
         """
-        Initialzes the Traning step with the model initialized
+        Initializes the Training step with the model initialized
 
         :param model: Instance of the NewsClassifier class
         """
         best_accuracy = 0
 
-        for epoch in monit.loop(self.EPOCHS):
+        for epoch in monit.loop(self.epochs):
             self.train_epoch(model)
 
             with tracker.namespace('valid'):
@@ -223,8 +228,8 @@ class NewsClassifierTrainer:
             if val_acc > best_accuracy:
                 best_accuracy = val_acc
 
-                if args.save_model:
-                    self.save_model()
+                if self.is_save_model:
+                    self.save_model(model)
 
             tracker.new_line()
 
@@ -233,8 +238,6 @@ class NewsClassifierTrainer:
         Training process happens and accuracy is returned as output
 
         :param model: Instance of the NewsClassifier class
-
-        :result: output - Accuracy of the model after training
         """
 
         model.train()
@@ -299,7 +302,6 @@ class NewsClassifierTrainer:
         return correct_predictions / total
 
     def get_predictions(self, model, data_loader):
-
         """
         Prediction after the training step is over
 
@@ -351,6 +353,22 @@ def main():
     )
 
     parser.add_argument(
+        "--batch_size",
+        type=int,
+        default=16,
+        metavar="N",
+        help="batch size (default: 16)",
+    )
+
+    parser.add_argument(
+        "--max_len",
+        type=int,
+        default=160,
+        metavar="N",
+        help="number of tokens per sample (rest is truncated) (default: 140)",
+    )
+
+    parser.add_argument(
         "--num_samples",
         type=int,
         default=120_000,
@@ -383,12 +401,18 @@ def main():
     with experiment.start():
         mlflow.start_run()
 
-        trainer = NewsClassifierTrainer(args)
+        trainer = NewsClassifierTrainer(epochs=args.max_epochs,
+                                        n_samples=args.num_samples,
+                                        vocab_file_url=args.vocab_file,
+                                        is_save_model=args.save_model,
+                                        model_path=args.model_save_path,
+                                        batch_size=args.batch_size,
+                                        max_len=args.max_len)
         model = Model()
         model = model.to(trainer.device)
         trainer.prepare_data()
         trainer.set_optimizer(model)
-        trainer.start_training(model, args)
+        trainer.start_training(model)
 
         print("TRAINING COMPLETED!!!")
 
