@@ -195,6 +195,17 @@ class NewsClassifierTrainer:
 
         self.loss_fn = nn.CrossEntropyLoss().to(self.device)
 
+    def save_model(self):
+        with monit.section('Save model'):
+            if os.path.exists(args.model_save_path):
+                shutil.rmtree(args.model_save_path)
+            mlflow.pytorch.save_model(
+                model,
+                path=args.model_save_path,
+                requirements_file="requirements.txt",
+                extra_files=["class_mapping.json", "bert_base_uncased_vocab.txt"],
+            )
+
     def start_training(self, model, args):
         """
         Initialzes the Traning step with the model initialized
@@ -213,15 +224,7 @@ class NewsClassifierTrainer:
                 best_accuracy = val_acc
 
                 if args.save_model:
-                    with monit.section('Save model'):
-                        if os.path.exists(args.model_save_path):
-                            shutil.rmtree(args.model_save_path)
-                        mlflow.pytorch.save_model(
-                            model,
-                            path=args.model_save_path,
-                            requirements_file="requirements.txt",
-                            extra_files=["class_mapping.json", "bert_base_uncased_vocab.txt"],
-                        )
+                    self.save_model()
 
             tracker.new_line()
 
