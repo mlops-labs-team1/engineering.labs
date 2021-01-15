@@ -1,30 +1,25 @@
-# pylint: disable=W0221
-# pylint: disable=W0613
-# pylint: disable=E1102
-# pylint: disable=W0223
+import argparse
+import os
 import shutil
-from collections import defaultdict
+
+import mlflow.pytorch
 import numpy as np
 import pandas as pd
+import requests
 import torch
 import torch.nn.functional as F
+from labml import experiment, tracker, monit
 from sklearn.model_selection import train_test_split
 from torch import nn
 from torch.utils.data import Dataset, DataLoader
+from torchtext.datasets.text_classification import URLS
+from torchtext.utils import download_from_url, extract_archive
 from transformers import (
     BertModel,
     BertTokenizer,
     AdamW,
     get_linear_schedule_with_warmup,
 )
-import argparse
-import os
-from tqdm import tqdm
-import requests
-from torchtext.utils import download_from_url, extract_archive
-from torchtext.datasets.text_classification import URLS
-import mlflow
-import mlflow.pytorch
 
 class_names = ["World", "Sports", "Business", "Sci/Tech"]
 
@@ -66,11 +61,33 @@ class AGNewsDataset(Dataset):
         }
 
 
-class NewsClassifier(nn.Module):
+class Model(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.drop = nn.Dropout(p=0.2)
+        self.bert = BertModel.from_pretrained("bert-base-uncased", cache_dir='.cache')
+        for param in self.bert.parameters():
+            param.requires_grad = False
+        self.fc1 = nn.Linear(self.bert.config.hidden_size, 512)
+        self.out = nn.Linear(512, len(class_names))
+
+    def forward(self, input_ids, attention_mask):
+        """
+        :param input_ids: Input sentences from the batch
+        :param attention_mask: Attention mask returned by the encoder
+
+        :return: output - label for the input text
+        """
+        outputs = self.bert(input_ids=input_ids, attention_mask=attention_mask)
+        output = F.relu(self.fc1(outputs.pooler_output))
+        output = self.drop(output)
+        output = self.out(output)
+        return output
+
+
+class NewsClassifierTrainer:
     def __init__(self, args):
-        super(NewsClassifier, self).__init__()
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.PRE_TRAINED_MODEL_NAME = "bert-base-uncased"
         self.EPOCHS = args.max_epochs
         self.df = None
         self.tokenizer = None
@@ -87,36 +104,16 @@ class NewsClassifier(nn.Module):
         self.BATCH_SIZE = 16
         self.MAX_LEN = 160
         self.NUM_SAMPLES_COUNT = args.num_samples
-        n_classes = len(class_names)
         self.VOCAB_FILE_URL = args.vocab_file
         self.VOCAB_FILE = "bert_base_uncased_vocab.txt"
-
-        self.drop = nn.Dropout(p=0.2)
-        self.bert = BertModel.from_pretrained(self.PRE_TRAINED_MODEL_NAME)
-        for param in self.bert.parameters():
-            param.requires_grad = False
-        self.fc1 = nn.Linear(self.bert.config.hidden_size, 512)
-        self.out = nn.Linear(512, n_classes)
-
-    def forward(self, input_ids, attention_mask):
-        """
-        :param input_ids: Input sentences from the batch
-        :param attention_mask: Attention mask returned by the encoder
-
-        :return: output - label for the input text
-        """
-        _, pooled_output = self.bert(input_ids=input_ids, attention_mask=attention_mask)
-        output = F.relu(self.fc1(pooled_output))
-        output = self.drop(output)
-        output = self.out(output)
-        return output
 
     @staticmethod
     def process_label(rating):
         rating = int(rating)
         return rating - 1
 
-    def create_data_loader(self, df, tokenizer, max_len, batch_size):
+    @staticmethod
+    def create_data_loader(df, tokenizer, max_len, batch_size):
         """
         :param df: DataFrame input
         :param tokenizer: Bert tokenizer
@@ -141,6 +138,7 @@ class NewsClassifier(nn.Module):
         dataset_tar = download_from_url(URLS["AG_NEWS"], root=".data")
         extracted_files = extract_archive(dataset_tar)
 
+        train_csv_path = None
         for fname in extracted_files:
             if fname.endswith("train.csv"):
                 train_csv_path = fname
@@ -184,7 +182,7 @@ class NewsClassifier(nn.Module):
             self.df_test, self.tokenizer, self.MAX_LEN, self.BATCH_SIZE
         )
 
-    def setOptimizer(self):
+    def set_optimizer(self, model):
         """
         Sets the optimizer and scheduler functions
         """
@@ -197,34 +195,34 @@ class NewsClassifier(nn.Module):
 
         self.loss_fn = nn.CrossEntropyLoss().to(self.device)
 
-    def startTraining(self, model):
+    def start_training(self, model, args):
         """
         Initialzes the Traning step with the model initialized
 
         :param model: Instance of the NewsClassifier class
         """
-        history = defaultdict(list)
         best_accuracy = 0
 
-        for epoch in range(self.EPOCHS):
+        for epoch in monit.loop(self.EPOCHS):
+            self.train_epoch(model)
 
-            print(f"Epoch {epoch + 1}/{self.EPOCHS}")
-
-            train_acc, train_loss = self.train_epoch(model)
-
-            print(f"Train loss {train_loss} accuracy {train_acc}")
-
-            val_acc, val_loss = self.eval_model(model, self.val_data_loader)
-            print(f"Val   loss {val_loss} accuracy {val_acc}")
-
-            history["train_acc"].append(train_acc)
-            history["train_loss"].append(train_loss)
-            history["val_acc"].append(val_acc)
-            history["val_loss"].append(val_loss)
+            with tracker.namespace('valid'):
+                val_acc = self.eval_model(model, self.val_data_loader)
 
             if val_acc > best_accuracy:
-                torch.save(model.state_dict(), "best_model_state.bin")
+                if args.save_model:
+                    with monit.section('Save model'):
+                        if os.path.exists(args.model_save_path):
+                            shutil.rmtree(args.model_save_path)
+                        mlflow.pytorch.save_model(
+                            model,
+                            path=args.model_save_path,
+                            requirements_file="requirements.txt",
+                            extra_files=["class_mapping.json", "bert_base_uncased_vocab.txt"],
+                        )
                 best_accuracy = val_acc
+
+            tracker.new_line()
 
     def train_epoch(self, model):
         """
@@ -235,11 +233,11 @@ class NewsClassifier(nn.Module):
         :result: output - Accuracy of the model after training
         """
 
-        model = model.train()
-        losses = []
+        model.train()
         correct_predictions = 0
+        total = 0
 
-        for data in tqdm(self.train_data_loader):
+        for i, data in monit.enum('Train', self.train_data_loader):
             input_ids = data["input_ids"].to(self.device)
             attention_mask = data["attention_mask"].to(self.device)
             targets = data["targets"].to(self.device)
@@ -249,8 +247,10 @@ class NewsClassifier(nn.Module):
             _, preds = torch.max(outputs, dim=1)
             loss = self.loss_fn(outputs, targets)
 
-            correct_predictions += torch.sum(preds == targets)
-            losses.append(loss.item())
+            correct_predictions += torch.sum(preds == targets).item()
+            total += len(preds)
+            tracker.add('loss.train', loss)
+            tracker.add_global_step(len(preds))
 
             loss.backward()
             nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
@@ -258,10 +258,10 @@ class NewsClassifier(nn.Module):
             self.scheduler.step()
             self.optimizer.zero_grad()
 
-        return (
-            correct_predictions.double() / len(self.train_data_loader),
-            np.mean(losses),
-        )
+            if (i + 1) % 10 == 0:
+                tracker.save()
+
+        tracker.save('accuracy.train', correct_predictions / total)
 
     def eval_model(self, model, data_loader):
         """
@@ -272,13 +272,13 @@ class NewsClassifier(nn.Module):
 
         :result: output - Accuracy of the model after testing
         """
-        model = model.eval()
+        model.eval()
 
-        losses = []
         correct_predictions = 0
+        total = 0
 
         with torch.no_grad():
-            for d in data_loader:
+            for d in monit.iterate('Valid', data_loader):
                 input_ids = d["input_ids"].to(self.device)
                 attention_mask = d["attention_mask"].to(self.device)
                 targets = d["targets"].to(self.device)
@@ -287,10 +287,12 @@ class NewsClassifier(nn.Module):
                 _, preds = torch.max(outputs, dim=1)
 
                 loss = self.loss_fn(outputs, targets)
-                correct_predictions += torch.sum(preds == targets)
-                losses.append(loss.item())
+                correct_predictions += torch.sum(preds == targets).item()
+                total += len(preds)
+                tracker.add('loss.', loss)
 
-        return correct_predictions.double() / len(data_loader), np.mean(losses)
+        tracker.save('accuracy.', correct_predictions / total)
+        return correct_predictions / total
 
     def get_predictions(self, model, data_loader):
 
@@ -333,8 +335,7 @@ class NewsClassifier(nn.Module):
         return review_texts, predictions, prediction_probs, real_values
 
 
-if __name__ == "__main__":
-
+def main():
     parser = argparse.ArgumentParser(description="PyTorch BERT Example")
 
     parser.add_argument(
@@ -348,10 +349,10 @@ if __name__ == "__main__":
     parser.add_argument(
         "--num_samples",
         type=int,
-        default=15000,
+        default=120_000,
         metavar="N",
         help="Number of samples to be used for training "
-        "and evaluation steps (default: 15000) Maximum:100000",
+             "and evaluation steps (default: 15000) Maximum:100000",
     )
 
     parser.add_argument(
@@ -371,42 +372,32 @@ if __name__ == "__main__":
         "--model_save_path", type=str, default="models", help="Path to save mlflow model"
     )
 
+    experiment.create(name='bert_news')
     args = parser.parse_args()
-    mlflow.start_run()
+    experiment.configs(args.__dict__)
 
-    model = NewsClassifier(args)
-    model = model.to(model.device)
-    model.prepare_data()
-    model.setOptimizer()
-    model.startTraining(model)
+    with experiment.start():
+        mlflow.start_run()
 
-    print("TRAINING COMPLETED!!!")
+        trainer = NewsClassifierTrainer(args)
+        model = Model()
+        model = model.to(trainer.device)
+        trainer.prepare_data()
+        trainer.set_optimizer(model)
+        trainer.start_training(model, args)
 
-    test_acc, test_loss = model.eval_model(model, model.test_data_loader)
+        print("TRAINING COMPLETED!!!")
 
-    print(test_acc.item())
+        with tracker.namespace('test'):
+            test_acc = trainer.eval_model(model, trainer.test_data_loader)
+            print(test_acc)
 
-    y_review_texts, y_pred, y_pred_probs, y_test = model.get_predictions(
-        model, model.test_data_loader
-    )
-
-    # Logging and registering
-    mlflow.log_param("epochs", model.EPOCHS)
-    mlflow.log_param("samples", model.NUM_SAMPLES_COUNT)
-    mlflow.log_metric("test_acc", float(test_acc))
-    mlflow.log_metric("test_loss", float(test_loss))
-    mlflow.pytorch.log_model(model, "bert-model", registered_model_name="BertModel")
-
-    print("\n\n\n SAVING MODEL")
-
-    if args.save_model:
-        if os.path.exists(args.model_save_path):
-            shutil.rmtree(args.model_save_path)
-        mlflow.pytorch.save_model(
-            model,
-            path=args.model_save_path,
-            requirements_file="requirements.txt",
-            extra_files=["class_mapping.json", "bert_base_uncased_vocab.txt"],
+        y_review_texts, y_pred, y_pred_probs, y_test = trainer.get_predictions(
+            model, trainer.test_data_loader
         )
-        mlflow.log_artifacts(args.model_save_path, "state_dict_version")
-    mlflow.end_run()
+
+        mlflow.end_run()
+
+
+if __name__ == '__main__':
+    main()
