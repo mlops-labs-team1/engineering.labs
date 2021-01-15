@@ -210,6 +210,8 @@ class NewsClassifierTrainer:
                 val_acc = self.eval_model(model, self.val_data_loader)
 
             if val_acc > best_accuracy:
+                best_accuracy = val_acc
+
                 if args.save_model:
                     with monit.section('Save model'):
                         if os.path.exists(args.model_save_path):
@@ -220,7 +222,6 @@ class NewsClassifierTrainer:
                             requirements_file="requirements.txt",
                             extra_files=["class_mapping.json", "bert_base_uncased_vocab.txt"],
                         )
-                best_accuracy = val_acc
 
             tracker.new_line()
 
