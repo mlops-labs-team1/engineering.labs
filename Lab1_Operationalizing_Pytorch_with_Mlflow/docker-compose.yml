@@ -3,7 +3,7 @@ services:
   mlflow-server:
     image: englabs/mlflow-server
     build:
-      context: .
+      context: src/bert_classifier
       dockerfile: Dockerfile-mlflow-server
     command: ["--backend-store-uri", "sqlite:///mlflow.db", "--default-artifact-root", "s3://mlops-englab-mlflow/labstore", "--host", "0.0.0.0"]
     env_file:

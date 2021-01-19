@@ -8,3 +8,4 @@ sklearn
 tqdm
 torchtext>=0.7.0
 pandas
+labml

@@ -38,7 +38,7 @@ class NewsClassifierHandler(object):
         # Read model serialize/pt file
         model_pt_path = os.path.join(model_dir, "model.pth")
         # Read model definition file
-        model_def_path = os.path.join(model_dir, "news_classifier.py")
+        model_def_path = os.path.join(model_dir, "train.py")
         if not os.path.isfile(model_def_path):
             raise RuntimeError("Missing the model definition file")
 
@@ -63,10 +63,11 @@ class NewsClassifierHandler(object):
 
         :return: output - preprocessed encoding
         """
-
         text = data[0].get("data")
-        if text is None:
-            text = data[0].get("body")
+        uuid = data[0].get("uuid", None)
+        if uuid is not None:
+            uuid = uuid.decode('utf-8')
+            logger.info(f"Evaluating, sample uuid: {uuid}")
 
         text = text.decode("utf-8")
 
