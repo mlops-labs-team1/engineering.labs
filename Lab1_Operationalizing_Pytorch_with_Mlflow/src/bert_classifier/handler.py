@@ -63,10 +63,11 @@ class NewsClassifierHandler(object):
 
         :return: output - preprocessed encoding
         """
-
         text = data[0].get("data")
-        if text is None:
-            text = data[0].get("body")
+        uuid = data[0].get("uuid", None)
+        if uuid is not None:
+            uuid = uuid.decode('utf-8')
+            logger.info(f"Evaluating, sample uuid: {uuid}")
 
         text = text.decode("utf-8")
 

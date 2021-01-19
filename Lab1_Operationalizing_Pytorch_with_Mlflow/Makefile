@@ -1,9 +1,12 @@
-clean: ## Clean
+clean-torchserve:
 	rm -rf logs
 	rm -rf model_store
+
+clean: clean-torchserve ## Clean
 	rm -rf artifacts
 	rm -rf labml_logs
 	rm mlflow.db
+
 
 train: export MLFLOW_TRACKING_URI:=http://localhost:5005
 train: export PYTHONPATH=$$PYTHONPATH:./src
