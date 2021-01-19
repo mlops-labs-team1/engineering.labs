@@ -1,8 +1,13 @@
+"""
+Not used anymore.
+Leaving for learning purposes.
+"""
 import mlflow
 from mlflow.deployments import get_deploy_client
 
 
 def deploy():
+    # This can be set as an environment variable
     mlflow.set_tracking_uri("http://localhost:5005")
     client = get_deploy_client('torchserve')
     # path = Path('').absolute() / 'models'
