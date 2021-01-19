@@ -205,7 +205,12 @@ class NewsClassifierTrainer:
         with monit.section('Save model'):
             mlflow.pytorch.log_model(model, "bert-model",
                                      registered_model_name="BertModel",
-                                     extra_files=["class_mapping.json", "bert_base_uncased_vocab.txt"])
+                                     extra_files=[
+                                         "class_mapping.json",
+                                         "bert_base_uncased_vocab.txt",
+                                         "src/bert_classifier/train.py",
+                                         "src/bert_classifier/handler.py",
+                                     ])
 
     def start_training(self, model):
         """
@@ -369,7 +374,8 @@ def main():
     args = parser.parse_args()
     experiment.configs(args.__dict__)
 
-    mlflow.set_tracking_uri("http://localhost:5005")
+    # This is set as an environment variable, check the Makefile
+    # mlflow.set_tracking_uri("http://localhost:5005")
     mlflow.start_run()
     mlflow.log_param("epochs", args.max_epochs)
     mlflow.log_param("samples", args.num_samples)
