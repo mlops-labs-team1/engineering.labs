@@ -1,5 +1,7 @@
 #!/bin/sh
 
+set -m
+
 torchserve --start --model-store model_store &
 
 mlflow deployments create \
