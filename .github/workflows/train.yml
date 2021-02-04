@@ -1,10 +1,8 @@
 name: "Run training"
 
-# Trigger the workflow on push for the master branch and on any PR
 on:
   push:
     branches: [master]
-  pull_request:
 
 jobs:
   train:
@@ -86,7 +84,7 @@ jobs:
           MLFLOW_TRACKING_URI: http://35.185.111.8:5000
         with:
           args: |
-            compute ssh --zone us-east1-b compute-1 -- "bash /root/train.sh ${MLFLOW_TRACKING_URI} ${GITHUB_SHA}
+            compute ssh --zone us-east1-b compute-1 -- "bash -x /root/train.sh ${MLFLOW_TRACKING_URI} ${GITHUB_SHA}
       - name: Stop training node
         uses: actions-hub/gcloud@master
         if: ${{ always() }}
