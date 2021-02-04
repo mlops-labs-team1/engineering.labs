@@ -2,33 +2,59 @@
 # pylint: disable=W0613
 # pylint: disable=E1102
 # pylint: disable=W0223
+import argparse
 import json
+import os
 import shutil
-from collections import defaultdict
+
+import mlflow.pytorch
 import numpy as np
 import pandas as pd
+import requests
 import torch
 import torch.nn.functional as F
+from labml import experiment, tracker, monit
+from labml.logger import inspect
+from mlflow.tracking import MlflowClient
 from sklearn.model_selection import train_test_split
 from torch import nn
 from torch.utils.data import Dataset, DataLoader
+from torchtext.datasets.text_classification import URLS
+from torchtext.utils import download_from_url, extract_archive
 from transformers import (
-    BertModel,
     BertTokenizer,
     AdamW,
     get_linear_schedule_with_warmup,
+    BertModel
 )
-import argparse
-import os
-from tqdm import tqdm
-import requests
-from torchtext.utils import download_from_url, extract_archive
-from torchtext.datasets.text_classification import URLS
-import mlflow
-import mlflow.pytorch
-from mlflow.tracking import MlflowClient
 
-class_names = ["World", "Sports", "Business", "Sci/Tech"]
+# from bert_classifier.model import Model
+
+RANDOM_SEED = 42
+
+
+class Model(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.drop = nn.Dropout(p=0.2)
+        self.bert = BertModel.from_pretrained("bert-base-uncased", cache_dir='.cache')
+        for param in self.bert.parameters():
+            param.requires_grad = False
+        self.fc1 = nn.Linear(self.bert.config.hidden_size, 512)
+        self.out = nn.Linear(512, 4)
+
+    def forward(self, input_ids, attention_mask):
+        """
+        :param input_ids: Input sentences from the batch
+        :param attention_mask: Attention mask returned by the encoder
+
+        :return: output - label for the input text
+        """
+        outputs = self.bert(input_ids=input_ids, attention_mask=attention_mask)
+        output = F.relu(self.fc1(outputs.pooler_output))
+        output = self.drop(output)
+        output = self.out(output)
+        return output
 
 
 class AGNewsDataset(Dataset):
@@ -68,12 +94,19 @@ class AGNewsDataset(Dataset):
         }
 
 
-class NewsClassifier(nn.Module):
-    def __init__(self, args):
-        super(NewsClassifier, self).__init__()
+class NewsClassifierTrainer:
+    def __init__(self, *, epochs: int, n_samples: int, vocab_file_url: str, model_path: str,
+                 batch_size: int = 16,
+                 max_len: int = 160):
+        self.model_path = model_path
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.PRE_TRAINED_MODEL_NAME = "bert-base-uncased"
-        self.EPOCHS = args.max_epochs
+        self.epochs = epochs
+        self.batch_size = batch_size
+        self.max_len = max_len
+        self.n_samples = n_samples
+        self.vocab_file_url = vocab_file_url
+        self.vocab_file = "bert_base_uncased_vocab.txt"
+
         self.df = None
         self.tokenizer = None
         self.df_train = None
@@ -86,39 +119,14 @@ class NewsClassifier(nn.Module):
         self.total_steps = None
         self.scheduler = None
         self.loss_fn = None
-        self.BATCH_SIZE = 16
-        self.MAX_LEN = 160
-        self.NUM_SAMPLES_COUNT = args.num_samples
-        n_classes = len(class_names)
-        self.VOCAB_FILE_URL = args.vocab_file
-        self.VOCAB_FILE = "bert_base_uncased_vocab.txt"
-
-        self.drop = nn.Dropout(p=0.2)
-        self.bert = BertModel.from_pretrained(self.PRE_TRAINED_MODEL_NAME)
-        for param in self.bert.parameters():
-            param.requires_grad = False
-        self.fc1 = nn.Linear(self.bert.config.hidden_size, 512)
-        self.out = nn.Linear(512, n_classes)
-
-    def forward(self, input_ids, attention_mask):
-        """
-        :param input_ids: Input sentences from the batch
-        :param attention_mask: Attention mask returned by the encoder
-
-        :return: output - label for the input text
-        """
-        pooled_output = self.bert(input_ids=input_ids, attention_mask=attention_mask).pooler_output
-        output = F.relu(self.fc1(pooled_output))
-        output = self.drop(output)
-        output = self.out(output)
-        return output
 
     @staticmethod
     def process_label(rating):
         rating = int(rating)
         return rating - 1
 
-    def create_data_loader(self, df, tokenizer, max_len, batch_size):
+    @staticmethod
+    def create_data_loader(df, tokenizer, max_len, batch_size):
         """
         :param df: DataFrame input
         :param tokenizer: Bert tokenizer
@@ -151,19 +159,19 @@ class NewsClassifier(nn.Module):
 
         self.df.columns = ["label", "title", "description"]
         self.df.sample(frac=1)
-        self.df = self.df.iloc[: self.NUM_SAMPLES_COUNT]
+        self.df = self.df.iloc[: self.n_samples]
 
         self.df["label"] = self.df.label.apply(self.process_label)
 
-        if not os.path.isfile(self.VOCAB_FILE):
-            filePointer = requests.get(self.VOCAB_FILE_URL, allow_redirects=True)
-            if filePointer.ok:
-                with open(self.VOCAB_FILE, "wb") as f:
-                    f.write(filePointer.content)
+        if not os.path.isfile(self.vocab_file):
+            file_pointer = requests.get(self.vocab_file_url, allow_redirects=True)
+            if file_pointer.ok:
+                with open(self.vocab_file, "wb") as f:
+                    f.write(file_pointer.content)
             else:
                 raise RuntimeError("Error in fetching the vocab file")
 
-        self.tokenizer = BertTokenizer(self.VOCAB_FILE)
+        self.tokenizer = BertTokenizer(self.vocab_file)
 
         RANDOM_SEED = 42
         np.random.seed(RANDOM_SEED)
@@ -177,21 +185,21 @@ class NewsClassifier(nn.Module):
         )
 
         self.train_data_loader = self.create_data_loader(
-            self.df_train, self.tokenizer, self.MAX_LEN, self.BATCH_SIZE
+            self.df_train, self.tokenizer, self.max_len, self.batch_size
         )
         self.val_data_loader = self.create_data_loader(
-            self.df_val, self.tokenizer, self.MAX_LEN, self.BATCH_SIZE
+            self.df_val, self.tokenizer, self.max_len, self.batch_size
         )
         self.test_data_loader = self.create_data_loader(
-            self.df_test, self.tokenizer, self.MAX_LEN, self.BATCH_SIZE
+            self.df_test, self.tokenizer, self.max_len, self.batch_size
         )
 
-    def setOptimizer(self):
+    def set_optimizer(self, model):
         """
         Sets the optimizer and scheduler functions
         """
         self.optimizer = AdamW(model.parameters(), lr=1e-3, correct_bias=False)
-        self.total_steps = len(self.train_data_loader) * self.EPOCHS
+        self.total_steps = len(self.train_data_loader) * self.epochs
 
         self.scheduler = get_linear_schedule_with_warmup(
             self.optimizer, num_warmup_steps=0, num_training_steps=self.total_steps
@@ -199,103 +207,65 @@ class NewsClassifier(nn.Module):
 
         self.loss_fn = nn.CrossEntropyLoss().to(self.device)
 
-    def startTraining(self, model):
+    def start_training(self, model):
         """
-        Initialzes the Traning step with the model initialized
+        Initializes the Training step with the model initialized
 
         :param model: Instance of the NewsClassifier class
         """
-        history = defaultdict(list)
-        best_accuracy = 0
 
-        for epoch in range(self.EPOCHS):
+        for epoch in monit.loop(self.epochs):
+            with tracker.namespace('train'):
+                self.train_epoch(model, self.train_data_loader, 'train')
 
-            print(f"Epoch {epoch + 1}/{self.EPOCHS}")
+            with tracker.namespace('valid'):
+                self.train_epoch(model, self.val_data_loader, 'valid')
 
-            train_acc, train_loss = self.train_epoch(model)
+            tracker.new_line()
 
-            print(f"Train loss {train_loss} accuracy {train_acc}")
-
-            val_acc, val_loss = self.eval_model(model, self.val_data_loader)
-            print(f"Val   loss {val_loss} accuracy {val_acc}")
-
-            history["train_acc"].append(train_acc)
-            history["train_loss"].append(train_loss)
-            history["val_acc"].append(val_acc)
-            history["val_loss"].append(val_loss)
-
-            if val_acc > best_accuracy:
-                torch.save(model.state_dict(), "best_model_state.bin")
-                best_accuracy = val_acc
-
-    def train_epoch(self, model):
+    def train_epoch(self, model: nn.Module, data_loader: DataLoader, name: str):
         """
-        Training process happens and accuracy is returned as output
-
-        :param model: Instance of the NewsClassifier class
-
-        :result: output - Accuracy of the model after training
+        Train/Validate for an epoch
         """
 
-        model = model.train()
-        losses = []
+        model.train(name == 'train')
         correct_predictions = 0
+        total = 0
+        total_loss = 0
 
-        for data in tqdm(self.train_data_loader):
-            input_ids = data["input_ids"].to(self.device)
-            attention_mask = data["attention_mask"].to(self.device)
-            targets = data["targets"].to(self.device)
-
-            outputs = model(input_ids=input_ids, attention_mask=attention_mask)
-
-            _, preds = torch.max(outputs, dim=1)
-            loss = self.loss_fn(outputs, targets)
-
-            correct_predictions += torch.sum(preds == targets)
-            losses.append(loss.item())
-
-            loss.backward()
-            nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
-            self.optimizer.step()
-            self.scheduler.step()
-            self.optimizer.zero_grad()
-
-        return (
-            correct_predictions.double() / len(self.train_data_loader),
-            np.mean(losses),
-        )
-
-    def eval_model(self, model, data_loader):
-        """
-        Validation process happens and validation / test accuracy is returned as output
-
-        :param model: Instance of the NewsClassifier class
-        :param data_loader: Data loader for either test / validation dataset
-
-        :result: output - Accuracy of the model after testing
-        """
-        model = model.eval()
-
-        losses = []
-        correct_predictions = 0
-
-        with torch.no_grad():
-            for d in data_loader:
-                input_ids = d["input_ids"].to(self.device)
-                attention_mask = d["attention_mask"].to(self.device)
-                targets = d["targets"].to(self.device)
+        with torch.set_grad_enabled(name == 'train'):
+            for i, data in monit.enum(name, data_loader):
+                input_ids = data["input_ids"].to(self.device)
+                attention_mask = data["attention_mask"].to(self.device)
+                targets = data["targets"].to(self.device)
 
                 outputs = model(input_ids=input_ids, attention_mask=attention_mask)
                 _, preds = torch.max(outputs, dim=1)
 
                 loss = self.loss_fn(outputs, targets)
-                correct_predictions += torch.sum(preds == targets)
-                losses.append(loss.item())
+                total_loss += loss.item() * len(preds)
 
-        return correct_predictions.double() / len(data_loader), np.mean(losses)
+                correct_predictions += torch.sum(preds == targets).item()
+                total += len(preds)
+                tracker.add('loss.', loss)
+                if name == 'train':
+                    tracker.add_global_step(len(preds))
+
+                    loss.backward()
+                    nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+                    self.optimizer.step()
+                    self.optimizer.zero_grad()
+
+                if (i + 1) % 10 == 0:
+                    tracker.save()
+
+        tracker.save('accuracy.', correct_predictions / total)
+        mlflow.log_metric(f"{name}_acc", float(correct_predictions / total), step=tracker.get_global_step())
+        mlflow.log_metric(f"{name}_loss", float(total_loss / total), step=tracker.get_global_step())
+
+        return correct_predictions / total, total_loss / total
 
     def get_predictions(self, model, data_loader):
-
         """
         Prediction after the training step is over
 
@@ -335,8 +305,7 @@ class NewsClassifier(nn.Module):
         return review_texts, predictions, prediction_probs, real_values
 
 
-if __name__ == "__main__":
-
+def main():
     parser = argparse.ArgumentParser(description="PyTorch BERT Example")
 
     def none_or_str(value):
@@ -353,12 +322,28 @@ if __name__ == "__main__":
     )
 
     parser.add_argument(
+        "--batch_size",
+        type=int,
+        default=16,
+        metavar="N",
+        help="batch size (default: 16)",
+    )
+
+    parser.add_argument(
+        "--max_len",
+        type=int,
+        default=160,
+        metavar="N",
+        help="number of tokens per sample (rest is truncated) (default: 140)",
+    )
+
+    parser.add_argument(
         "--num_samples",
         type=int,
-        default=15000,
+        default=1_000,
         metavar="N",
         help="Number of samples to be used for training "
-        "and evaluation steps (default: 15000) Maximum:100000",
+             "and evaluation steps (default: 15000) Maximum:100000",
     )
 
     parser.add_argument(
@@ -392,55 +377,73 @@ if __name__ == "__main__":
         help="Model name to register as (should only really be used by GH Actions)",
     )
 
+    experiment.create(name='bert_news')
     args = parser.parse_args()
+    experiment.configs(args.__dict__)
+
+    # This is set as an environment variable, check the Makefile
+    # mlflow.set_tracking_uri("http://localhost:5005")
     mlflow.start_run()
     run_id = mlflow.active_run().info.run_id
-    print(f"run id: {run_id}")
+    mlflow.log_param("epochs", args.max_epochs)
+    mlflow.log_param("samples", args.num_samples)
 
-    model = NewsClassifier(args)
-    model = model.to(model.device)
-    model.prepare_data()
-    model.setOptimizer()
-    model.startTraining(model)
+    with experiment.start():
+        trainer = NewsClassifierTrainer(epochs=args.max_epochs,
+                                        n_samples=args.num_samples,
+                                        vocab_file_url=args.vocab_file,
+                                        model_path=args.model_save_path,
+                                        batch_size=args.batch_size,
+                                        max_len=args.max_len)
+        model = Model()
+        model = model.to(trainer.device)
+        trainer.prepare_data()
+        trainer.set_optimizer(model)
+        trainer.start_training(model)
 
-    print("TRAINING COMPLETED!!!")
+        with tracker.namespace('test'):
+            test_acc, test_loss = trainer.train_epoch(model, trainer.test_data_loader, 'test')
 
-    test_acc, test_loss = model.eval_model(model, model.test_data_loader)
-
-    print(test_acc.item())
-
-    y_review_texts, y_pred, y_pred_probs, y_test = model.get_predictions(
-        model, model.test_data_loader
-    )
-
-    # Logging and registering
-    mlflow.log_param("epochs", model.EPOCHS)
-    mlflow.log_param("samples", model.NUM_SAMPLES_COUNT)
-    mlflow.log_metric("test_acc", float(test_acc))
-    mlflow.log_metric("test_loss", float(test_loss))
-    mlflow.pytorch.log_model(model, "bert-model", extra_files=["class_mapping.json", "bert_base_uncased_vocab.txt"])
-
-    if args.model_name is not None:
-        client = MlflowClient()
-        model_uri = f"runs:/{run_id}/bert-model"
-        print(f"REGISTERING MODEL : {model_uri}")
-        model_version = mlflow.register_model(model_uri, args.model_name)
-        if args.json_dump:
-            model_details = {k.strip("_"): v for k, v in model_version.__dict__.items()}
-            j = json.dumps(model_details)
-            print(f"SAVING MODEL DETAILS TO FILE {args.json_dump}:\n{j}")
-            with open(args.json_dump, 'w+') as f:
-                f.writelines(j)
-
-    print("\n\n\n SAVING MODEL")
-
-    if args.save_model:
-        if os.path.exists(args.model_save_path):
-            shutil.rmtree(args.model_save_path)
-        mlflow.pytorch.save_model(
-            model,
-            path=args.model_save_path,
-            requirements_file="requirements.txt",
-            extra_files=["class_mapping.json", "bert_base_uncased_vocab.txt"],
+        y_review_texts, y_pred, y_pred_probs, y_test = trainer.get_predictions(
+            model, trainer.test_data_loader
         )
-    mlflow.end_run()
+
+        inspect(y_review_texts)
+        inspect(torch.stack((y_pred, y_test), dim=1))
+
+        mlflow.log_metric("test_acc", float(test_acc), step=tracker.get_global_step())
+        mlflow.log_metric("test_loss", float(test_loss), step=tracker.get_global_step())
+
+        # Logging and registering
+        mlflow.log_param("epochs", trainer.epochs)
+        mlflow.log_param("samples", trainer.n_samples)
+        mlflow.pytorch.log_model(model, "bert-model", extra_files=["class_mapping.json", "bert_base_uncased_vocab.txt"])
+
+        if args.model_name is not None:
+            client = MlflowClient()
+            model_uri = f"runs:/{run_id}/bert-model"
+            print(f"REGISTERING MODEL : {model_uri}")
+            model_version = mlflow.register_model(model_uri, args.model_name)
+            if args.json_dump:
+                model_details = {k.strip("_"): v for k, v in model_version.__dict__.items()}
+                j = json.dumps(model_details)
+                print(f"SAVING MODEL DETAILS TO FILE {args.json_dump}:\n{j}")
+                with open(args.json_dump, 'w+') as f:
+                    f.writelines(j)
+
+        print("\n\n\n SAVING MODEL")
+
+        if args.save_model:
+            if os.path.exists(args.model_save_path):
+                shutil.rmtree(args.model_save_path)
+            mlflow.pytorch.save_model(
+                model,
+                path=args.model_save_path,
+                requirements_file="requirements.txt",
+                extra_files=["class_mapping.json", "bert_base_uncased_vocab.txt"],
+            )
+        mlflow.end_run()
+
+
+if __name__ == '__main__':
+    main()

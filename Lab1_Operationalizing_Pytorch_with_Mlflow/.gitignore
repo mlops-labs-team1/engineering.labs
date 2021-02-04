@@ -20,3 +20,11 @@ crash.log
 
 # Ansible variables
 **/group_vars/*
+
+.data
+.cache
+.idea
+mlruns
+labml_logs
+bert_base_uncased_vocab.txt
+models
