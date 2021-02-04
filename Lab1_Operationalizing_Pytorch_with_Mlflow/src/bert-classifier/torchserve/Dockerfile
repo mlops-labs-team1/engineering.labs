@@ -11,10 +11,7 @@ ENV GOOGLE_APPLICATION_CREDENTIALS=${MLFLOW_HOME}/gcp.json
 
 RUN mkdir -p ${MLFLOW_HOME}/scripts && \
     mkdir -p ${MODEL_STORE} && \
-    echo "${GCP_CREDS_JSON_BASE64_ENV}"| base64 --decode > "${GOOGLE_APPLICATION_CREDENTIALS}" && \
-    git clone https://github.com/pytorch/serve.git && \
-    cd serve && python ./ts_scripts/install_dependencies.py && \
-    pip install --no-cache-dir -r /tmp/requirements.txt
+    echo "${GCP_CREDS_JSON_BASE64_ENV}"| base64 --decode > "${GOOGLE_APPLICATION_CREDENTIALS}"
 
 COPY torchserve/entrypoint.sh ${MLFLOW_HOME}/scripts/run.sh
 COPY torchserve/config.properties ${MLFLOW_HOME}/config.properties

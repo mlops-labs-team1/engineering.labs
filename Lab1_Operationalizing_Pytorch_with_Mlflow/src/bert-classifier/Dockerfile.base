@@ -1,11 +1,14 @@
 # docker build -t gcr.io/engineeringlab/base:latest -f Dockerfile.base .
 
-FROM python:3.7
+FROM python:3.7-slim
 
 COPY requirements.txt /tmp/
-RUN pip install --upgrade pip && \
-    pip install --no-cache-dir -r /tmp/requirements.txt && \
-    mkdir -p /usr/share/man/man1/ && \
-    apt-get update && apt-get install --no-install-recommends -y git default-jdk wget && \
+
+RUN mkdir -p /usr/share/man/man1/ && \
+    apt-get update && apt-get install --no-install-recommends -y git default-jdk wget jq uuid-runtime && \
     apt-get clean -y -qq && apt-get autoremove -y -qq && \
-    rm -rf /var/lib/apt/lists/*
+    rm -rf /var/lib/apt/lists/* && \
+    git clone https://github.com/pytorch/serve.git && \
+    cd serve && python ./ts_scripts/install_dependencies.py && \
+    pip install --upgrade pip && \
+    pip install --no-cache-dir -r /tmp/requirements.txt
