@@ -1,0 +1,11 @@
+# docker build -t gcr.io/engineeringlab/base:latest -f Dockerfile.base .
+
+FROM python:3.7
+
+COPY requirements.txt /tmp/
+RUN pip install --upgrade pip && \
+    pip install --no-cache-dir -r /tmp/requirements.txt && \
+    mkdir -p /usr/share/man/man1/ && \
+    apt-get update && apt-get install --no-install-recommends -y git default-jdk wget && \
+    apt-get clean -y -qq && apt-get autoremove -y -qq && \
+    rm -rf /var/lib/apt/lists/*

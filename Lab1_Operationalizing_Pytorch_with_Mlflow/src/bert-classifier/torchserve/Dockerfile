@@ -1,4 +1,4 @@
-FROM python:3.7
+FROM gcr.io/engineeringlab/base:latest
 
 ARG GCP_CREDS_JSON_BASE64
 
@@ -9,25 +9,20 @@ ENV MLFLOW_TRACKING_URI=http://35.185.111.8:5000
 ENV GCP_CREDS_JSON_BASE64_ENV=${GCP_CREDS_JSON_BASE64}
 ENV GOOGLE_APPLICATION_CREDENTIALS=${MLFLOW_HOME}/gcp.json
 
-COPY requirements.txt /tmp/
 RUN mkdir -p ${MLFLOW_HOME}/scripts && \
     mkdir -p ${MODEL_STORE} && \
     echo "${GCP_CREDS_JSON_BASE64_ENV}"| base64 --decode > "${GOOGLE_APPLICATION_CREDENTIALS}" && \
-    mkdir -p /usr/share/man/man1/ && \
-    apt-get update && apt-get install --no-install-recommends -y git default-jdk wget && \
-    apt-get clean -y -qq && apt-get autoremove -y -qq && \
-    rm -rf /var/lib/apt/lists/* && \
     git clone https://github.com/pytorch/serve.git && \
     cd serve && python ./ts_scripts/install_dependencies.py && \
     pip install --no-cache-dir -r /tmp/requirements.txt
 
-COPY entrypoints/torchserve.sh ${MLFLOW_HOME}/scripts/run.sh
-COPY config.properties ${MLFLOW_HOME}/config.properties
+COPY torchserve/entrypoint.sh ${MLFLOW_HOME}/scripts/run.sh
+COPY torchserve/config.properties ${MLFLOW_HOME}/config.properties
 RUN chmod +x ${MLFLOW_HOME}/scripts/run.sh
 
+COPY torchserve/news_classifier_handler.py ${MLFLOW_HOME}/
 # TODO: This should be taken from MLFlow
-COPY news_classifier.py ${MLFLOW_HOME}/
-COPY news_classifier_handler.py ${MLFLOW_HOME}/
+COPY trainer/news_classifier.py ${MLFLOW_HOME}/
 
 VOLUME ["${MLFLOW_HOME}/scripts/"]
 
