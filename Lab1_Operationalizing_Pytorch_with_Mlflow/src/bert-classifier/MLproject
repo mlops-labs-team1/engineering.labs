@@ -8,8 +8,8 @@ docker_env:
 entry_points:
   main:
     parameters:
-      max_epochs: {type: int, default: 1}
-      num_samples: {type: int, default: 64}
+      max_epochs: {type: int, default: 5}
+      num_samples: {type: int, default: 15000}
       save_model: {type: bool, default: False}
       vocab_file: {type: str, default: 'https://s3.amazonaws.com/models.huggingface.co/bert/bert-base-uncased-vocab.txt'}
       model_save_path: {type: str, default: 'models'}
