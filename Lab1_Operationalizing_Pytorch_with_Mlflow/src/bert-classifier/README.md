@@ -25,7 +25,7 @@ To configure MLflow to log to a custom (non-default) tracking location, set the 
 For more details, see [the docs](https://mlflow.org/docs/latest/tracking.html#where-runs-are-recorded).
 
 Our MLflow server used [Google Cloud Storage](https://www.mlflow.org/docs/latest/tracking.html#google-cloud-storage) as its artifact store
-and so requires a [json credentials file][https://cloud.google.com/docs/authentication/getting-started] for a 
+and so requires a [json credentials file](https://cloud.google.com/docs/authentication/getting-started) for a 
 service account with access to the bucket. Set the `GOOGLE_APPLICATION_CREDENTIALS` environment variable to the location of this file.  
 This is because although we track metrics and metadata about the
 model in the tracking server backend store, the artifacts are sent directly to the cloud bucket.
