@@ -13,7 +13,7 @@ entry_points:
       save_model: {type: bool, default: False}
       vocab_file: {type: str, default: 'https://s3.amazonaws.com/models.huggingface.co/bert/bert-base-uncased-vocab.txt'}
       model_save_path: {type: str, default: 'models'}
-      model_name: {type: str, default: "BertModel"}
+      model_name: {type: str, default: ""}
       json_dump: {type: str, default: "None"}
 
     command: |
