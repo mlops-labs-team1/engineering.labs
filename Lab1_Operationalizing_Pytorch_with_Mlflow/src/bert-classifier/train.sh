@@ -3,13 +3,10 @@ set -euo pipefail
 IFS=$'\n\t'
 
 clone() {
-    BRANCH="$1"
-
     TMPDIR=$(mktemp -d /tmp/model.XXXXXXXXXX)
     cd "$TMPDIR"
     git clone https://github.com/mlops-labs-team1/engineering.labs.git
     cd engineering.labs/Lab1_Operationalizing_Pytorch_with_Mlflow/src/bert-classifier/
-    git checkout "$BRANCH"
 }
 
 export_model_version() {
@@ -37,11 +34,10 @@ train() {
 
 main() {
     export MLFLOW_TRACKING_URI="$1"
-    BRANCH="$2"
-    TAG="$3"
+    SHA="$2"
 
-    clone "$BRANCH"
-    train "$TAG"
+    clone
+    train "$SHA"
 }
 
 main "$@"
