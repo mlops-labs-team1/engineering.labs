@@ -39,10 +39,19 @@ Install MLflow per the [instructions](https://github.com/mlflow/mlflow#installin
 This project doesn't require `conda` on the `PATH`, but does require `docker` to be installed.
 
 ## Training
-### Building the trainer image
+### Building the training environment
 To run the code reproducibly, we use the `docker` project environment.
 See the [documentation](https://www.mlflow.org/docs/latest/projects.html#project-environments).  
 
+#### Building the base image
+A lot of the bugs that arose during this project came from the training and serving containers having different python environments.
+To help prevent this we created a base image with the required python environment from which the training and serving images will start from.
+
+To build the image from the current directory run
+```
+docker build -t gcr.io/engineeringlab/base:latest -f Dockerfile.base .
+```
+#### Building the training image
 The image contains the required GCP credentials for logging models. This is passed as a build argument using base64 encoding.
 
 To build the image from the current directory run
@@ -51,8 +60,11 @@ docker build --build-arg GCP_CREDS_JSON_BASE64="$(base64 $GOOGLE_APPLICATION_CRE
 ```
 
 ### Running the code
-To run the example via MLflow, navigate to the `src/bert-classifier/trainer` directory and run the command
+To run the example via MLflow, navigate to the `src/bert-classifier/trainer` directory.
 
+Edit the `MLProject` file and replace `##IMAGE##` with `latest`. (side note: this is replaced in the github actions workflow to create a unique training image during CI)
+
+Run the command
 ```
 mlflow run .
 ```
