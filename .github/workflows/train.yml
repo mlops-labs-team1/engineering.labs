@@ -2,7 +2,7 @@ name: "Run training"
 
 on:
   push:
-    branches: [master,an/remove-docker-cache]
+    branches: [master]
 
 jobs:
   train:
