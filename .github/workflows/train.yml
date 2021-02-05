@@ -2,7 +2,7 @@ name: "Run training"
 
 on:
   push:
-    branches: [master]
+    branches: [master,an/remove-docker-cache]
 
 jobs:
   train:
@@ -24,20 +24,6 @@ jobs:
           args: info
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v1
-      - name: Cache Docker layers
-        uses: actions/cache@v2
-        with:
-          path: /tmp/.buildx-cache
-          key: ${{ runner.os }}-buildx-${{ github.sha }}
-          restore-keys: |
-            ${{ runner.os }}-buildx-
-      - name: Configure Docker
-        uses: actions-hub/gcloud@master
-        env:
-          PROJECT_ID: engineeringlab
-          APPLICATION_CREDENTIALS: ${{ secrets.GOOGLE_APPLICATION_CREDENTIALS }}
-        with:
-          args: auth configure-docker gcr.io --quiet
       - name: Login to GCR
         uses: docker/login-action@v1
         with:
@@ -52,8 +38,6 @@ jobs:
           tags: gcr.io/engineeringlab/trainer:${{ github.sha }}
           build-args: |
             GCP_CREDS_JSON_BASE64=${{ secrets.GCP_CREDS_JSON_BASE64 }}
-          cache-from: type=local,src=/tmp/.buildx-cache
-          cache-to: type=local,dest=/tmp/.buildx-cache
           push: true
       - name: Start training node
         uses: actions-hub/gcloud@master
@@ -103,8 +87,6 @@ jobs:
           build-args: |
             GCP_CREDS_JSON_BASE64=${{ secrets.GCP_CREDS_JSON_BASE64 }}
             MODEL_NAME=${{ steps.run_training.outputs.model_name }}
-          cache-from: type=local,src=/tmp/.buildx-cache
-          cache-to: type=local,dest=/tmp/.buildx-cache
           push: true
       - name: Create Cloud Run service name
         run: echo ::set-output name=service_name::$(echo ${{ steps.run_training.outputs.serve_image_tag }} |  tr '[:upper:]' '[:lower:]')
