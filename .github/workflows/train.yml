@@ -47,8 +47,8 @@ jobs:
       - name: Build and push training node
         uses: docker/build-push-action@v2
         with:
-          context: ./Lab1_Operationalizing_Pytorch_with_Mlflow/src/bert-classifier
-          file: ./Lab1_Operationalizing_Pytorch_with_Mlflow/src/bert-classifier/trainer/Dockerfile
+          context: ./src/bert-classifier
+          file: ./src/bert-classifier/trainer/Dockerfile
           tags: gcr.io/engineeringlab/trainer:${{ github.sha }}
           build-args: |
             GCP_CREDS_JSON_BASE64=${{ secrets.GCP_CREDS_JSON_BASE64 }}
@@ -74,7 +74,7 @@ jobs:
           APPLICATION_CREDENTIALS: ${{ secrets.GOOGLE_APPLICATION_CREDENTIALS }}
         with:
           args: |
-            compute scp --zone us-east1-b ./Lab1_Operationalizing_Pytorch_with_Mlflow/src/bert-classifier/trainer/train.sh compute-1:/root
+            compute scp --zone us-east1-b ./src/bert-classifier/trainer/train.sh compute-1:/root
       - name: Run proper training
         id: run_training
         uses: actions-hub/gcloud@master
@@ -97,8 +97,8 @@ jobs:
       - name: Build and push Torchserve image
         uses: docker/build-push-action@v2
         with:
-          context: ./Lab1_Operationalizing_Pytorch_with_Mlflow/src/bert-classifier
-          file: ./Lab1_Operationalizing_Pytorch_with_Mlflow/src/bert-classifier/torchserve/Dockerfile
+          context: ./src/bert-classifier
+          file: ./src/bert-classifier/torchserve/Dockerfile
           tags: gcr.io/engineeringlab/torchserve:${{ steps.run_training.outputs.serve_image_tag }}
           build-args: |
             GCP_CREDS_JSON_BASE64=${{ secrets.GCP_CREDS_JSON_BASE64 }}
