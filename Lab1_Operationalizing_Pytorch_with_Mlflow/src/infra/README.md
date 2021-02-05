@@ -21,7 +21,7 @@ place it in your path.
 
 ### Ansible
 
-We need to set up resources after we create them. - [Ansible](https://www.ansible.com/) is an
+We need to set up resources after we create them. [Ansible](https://www.ansible.com/) is an
 infrastructure automation tool that eases our tasks with infra Configuration.
 
 It relies heavily on Python and SSH to remotely set up nodes and other elements of one's infrastructure. 

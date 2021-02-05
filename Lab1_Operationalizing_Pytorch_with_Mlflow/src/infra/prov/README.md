@@ -14,7 +14,6 @@ tasks in the very Cloud documentation.
     - IAM Service Account Credentials API (iamcredentials.googleapis.com)
     - Cloud SQL Admin API (sqladmin.googleapis.com)
     - Cloud Storage API (storage.googleapis.com)
-     #- Artifact Registry API (artifactregistry.googleapis.com) #
     - Cloud Run API (run.googleapis.com)
 
     You may use GCloud SDK as well. 
@@ -140,7 +139,7 @@ This procedure destroys the managed resources:
     ```
 
 1. Remove delete protection from Database Instance. This resource has a protection to avoid unintentional
-database detruction. Just uncomment this line in [data.tf](data.tf) and apply the changes.
+database destruction. Just uncomment this line in [data.tf](data.tf) and apply the changes.
 
     ```
     # deletion_protection = false
@@ -149,7 +148,7 @@ database detruction. Just uncomment this line in [data.tf](data.tf) and apply th
 1. Remove `google_sql_user` and `google_sql_database` from Terraform state control. There is a dependency
 between database instance, database and sql user. You can't destroy the user or database meanwhile the
 Database instance exists. At the same time, when you destroy the Database instance, it cascades to its
-databases and users therefore creating an inconsistency.
+databases and users therefore causing an inconsistent state.
 
     ```
     $ terraform state rm google_sql_user.users
