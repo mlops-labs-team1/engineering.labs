@@ -7,6 +7,7 @@ clone() {
     cd "$TMPDIR"
     git clone https://github.com/mlops-labs-team1/engineering.labs.git
     cd engineering.labs/src/bert-classifier/trainer/
+    cp ../requirements.txt .
 }
 
 export_model_version() {
