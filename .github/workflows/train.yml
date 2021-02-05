@@ -1,10 +1,8 @@
 name: "Run training"
 
-# Trigger the workflow on push for the master branch and on any PR
 on:
   push:
     branches: [master]
-  pull_request:
 
 jobs:
   train:
@@ -50,7 +48,7 @@ jobs:
         uses: docker/build-push-action@v2
         with:
           context: ./Lab1_Operationalizing_Pytorch_with_Mlflow/src/bert-classifier
-          file: ./Lab1_Operationalizing_Pytorch_with_Mlflow/src/bert-classifier/Dockerfile-trainer
+          file: ./Lab1_Operationalizing_Pytorch_with_Mlflow/src/bert-classifier/trainer/Dockerfile
           tags: gcr.io/engineeringlab/trainer:${{ github.sha }}
           build-args: |
             GCP_CREDS_JSON_BASE64=${{ secrets.GCP_CREDS_JSON_BASE64 }}
@@ -76,7 +74,7 @@ jobs:
           APPLICATION_CREDENTIALS: ${{ secrets.GOOGLE_APPLICATION_CREDENTIALS }}
         with:
           args: |
-            compute scp --zone us-east1-b ./Lab1_Operationalizing_Pytorch_with_Mlflow/src/bert-classifier/train.sh compute-1:/root
+            compute scp --zone us-east1-b ./Lab1_Operationalizing_Pytorch_with_Mlflow/src/bert-classifier/trainer/train.sh compute-1:/root
       - name: Run proper training
         id: run_training
         uses: actions-hub/gcloud@master
@@ -86,7 +84,7 @@ jobs:
           MLFLOW_TRACKING_URI: http://35.185.111.8:5000
         with:
           args: |
-            compute ssh --zone us-east1-b compute-1 -- "bash /root/train.sh ${MLFLOW_TRACKING_URI} master ${GITHUB_SHA}
+            compute ssh --zone us-east1-b compute-1 -- "bash -x /root/train.sh ${MLFLOW_TRACKING_URI} ${GITHUB_SHA}
       - name: Stop training node
         uses: actions-hub/gcloud@master
         if: ${{ always() }}
@@ -100,7 +98,7 @@ jobs:
         uses: docker/build-push-action@v2
         with:
           context: ./Lab1_Operationalizing_Pytorch_with_Mlflow/src/bert-classifier
-          file: ./Lab1_Operationalizing_Pytorch_with_Mlflow/src/bert-classifier/Dockerfile-torchserve
+          file: ./Lab1_Operationalizing_Pytorch_with_Mlflow/src/bert-classifier/torchserve/Dockerfile
           tags: gcr.io/engineeringlab/torchserve:${{ steps.run_training.outputs.serve_image_tag }}
           build-args: |
             GCP_CREDS_JSON_BASE64=${{ secrets.GCP_CREDS_JSON_BASE64 }}

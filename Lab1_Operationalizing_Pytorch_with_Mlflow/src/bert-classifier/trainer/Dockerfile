@@ -1,4 +1,4 @@
-FROM python:3.7
+FROM gcr.io/engineeringlab/base:latest
 
 # Include GCP service account credentials with the build
 # Run docker build .... --build-arg GCP_CREDS_JSON_BASE64="xxxx"
@@ -8,7 +8,3 @@ ARG GCP_CREDS_JSON_BASE64
 ENV GCP_CREDS_JSON_BASE64_ENV=${GCP_CREDS_JSON_BASE64}
 ENV GOOGLE_APPLICATION_CREDENTIALS=/root/gcp.json
 RUN echo "${GCP_CREDS_JSON_BASE64_ENV}"| base64 --decode > "${GOOGLE_APPLICATION_CREDENTIALS}"
-
-COPY requirements.txt /tmp/
-RUN pip install --upgrade pip && \
-    pip install --no-cache-dir -r /tmp/requirements.txt
