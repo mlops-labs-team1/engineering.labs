@@ -10,11 +10,11 @@ entry_points:
     parameters:
       max_epochs: {type: int, default: 5}
       num_samples: {type: int, default: 15_000}
-      save_model: {type: bool, default: False}
+      save_model: {type: str, default: ""}
       vocab_file: {type: str, default: 'https://s3.amazonaws.com/models.huggingface.co/bert/bert-base-uncased-vocab.txt'}
       model_save_path: {type: str, default: 'models'}
       model_name: {type: str, default: ""}
-      json_dump: {type: str, default: "None"}
+      json_dump: {type: str, default: ""}
 
     command: |
           python news_classifier.py \

@@ -213,10 +213,13 @@ class NewsClassifier(nn.Module):
             print(f"Epoch {epoch + 1}/{self.EPOCHS}")
 
             train_acc, train_loss = self.train_epoch(model)
-
+            mlflow.log_metric("train_acc", float(train_acc))
+            mlflow.log_metric("train_loss", float(train_loss))
             print(f"Train loss {train_loss} accuracy {train_acc}")
 
             val_acc, val_loss = self.eval_model(model, self.val_data_loader)
+            mlflow.log_metric("val_acc", float(val_acc))
+            mlflow.log_metric("val_loss", float(val_loss))
             print(f"Val   loss {val_loss} accuracy {val_acc}")
 
             history["train_acc"].append(train_acc)
@@ -261,7 +264,7 @@ class NewsClassifier(nn.Module):
             self.optimizer.zero_grad()
 
         return (
-            correct_predictions.double() / len(self.train_data_loader),
+            correct_predictions.double() / len(self.train_data_loader) / self.BATCH_SIZE,
             np.mean(losses),
         )
 
@@ -292,7 +295,7 @@ class NewsClassifier(nn.Module):
                 correct_predictions += torch.sum(preds == targets)
                 losses.append(loss.item())
 
-        return correct_predictions.double() / len(data_loader), np.mean(losses)
+        return correct_predictions.double() / len(data_loader) / self.BATCH_SIZE, np.mean(losses)
 
     def get_predictions(self, model, data_loader):
 
@@ -339,11 +342,6 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description="PyTorch BERT Example")
 
-    def none_or_str(value):
-        if value == 'None':
-            return None
-        return value
-
     parser.add_argument(
         "--max_epochs",
         type=int,
@@ -363,8 +361,8 @@ if __name__ == "__main__":
 
     parser.add_argument(
         "--save_model",
-        type=bool,
-        default=True,
+        type=str,
+        default='',
         help="For Saving the current Model",
     )
 
@@ -380,15 +378,15 @@ if __name__ == "__main__":
 
     parser.add_argument(
         "--json_dump",
-        type=none_or_str,
-        default=None,
+        type=str,
+        default="",
         help="Filename to output model details (e.g. version) to",
     )
 
     parser.add_argument(
         "--model_name",
-        type=none_or_str,
-        default=None,
+        type=str,
+        default="",
         help="Model name to register as (should only really be used by GH Actions)",
     )
 
@@ -406,8 +404,7 @@ if __name__ == "__main__":
     print("TRAINING COMPLETED!!!")
 
     test_acc, test_loss = model.eval_model(model, model.test_data_loader)
-
-    print(test_acc.item())
+    print(f"Test   loss {test_loss} accuracy {test_acc}")
 
     y_review_texts, y_pred, y_pred_probs, y_test = model.get_predictions(
         model, model.test_data_loader
@@ -418,9 +415,12 @@ if __name__ == "__main__":
     mlflow.log_param("samples", model.NUM_SAMPLES_COUNT)
     mlflow.log_metric("test_acc", float(test_acc))
     mlflow.log_metric("test_loss", float(test_loss))
-    mlflow.pytorch.log_model(model, "bert-model", extra_files=["class_mapping.json", "bert_base_uncased_vocab.txt"])
 
-    if args.model_name is not None:
+    if args.save_model:
+        print("\n\n\n SAVING MODEL")
+        mlflow.pytorch.log_model(model, "bert-model", extra_files=["class_mapping.json", "bert_base_uncased_vocab.txt"])
+
+    if args.model_name:
         client = MlflowClient()
         model_uri = f"runs:/{run_id}/bert-model"
         print(f"REGISTERING MODEL : {model_uri}")
@@ -432,15 +432,4 @@ if __name__ == "__main__":
             with open(args.json_dump, 'w+') as f:
                 f.writelines(j)
 
-    print("\n\n\n SAVING MODEL")
-
-    if args.save_model:
-        if os.path.exists(args.model_save_path):
-            shutil.rmtree(args.model_save_path)
-        mlflow.pytorch.save_model(
-            model,
-            path=args.model_save_path,
-            requirements_file="requirements.txt",
-            extra_files=["class_mapping.json", "bert_base_uncased_vocab.txt"],
-        )
     mlflow.end_run()
