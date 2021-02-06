@@ -47,7 +47,7 @@ The image contains the required GCP credentials for logging models. This is pass
 
 To build the image from the current directory run
 ```
-docker build --build-arg GCP_CREDS_JSON_BASE64="$(base64 $GOOGLE_APPLICATION_CREDENTIALS)" -f ./trainer/Dockerfile .
+docker build -t gcr.io/engineeringlab/trainer --build-arg GCP_CREDS_JSON_BASE64="$(base64 $GOOGLE_APPLICATION_CREDENTIALS)" -f ./trainer/Dockerfile .
 ```
 
 ### Running the code
