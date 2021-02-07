@@ -51,6 +51,13 @@ To build the image from the current directory run
 ```
 docker build -t gcr.io/engineeringlab/base:latest -f Dockerfile.base .
 ```
+
+If you have a GPU available for training, you can install the required CUDA version using the `CUDA_VERSION` build argument
+```
+docker build -t gcr.io/engineeringlab/base:latest --build-arg CUDA_VERSION=cu101 -f Dockerfile.base .
+```
+See the [pytorch installation](https://pytorch.org/get-started/locally/) documentation for valid cuda version strings, 
+e.g. `cu92`, `cu101`, `cu102`, `cu110`
 #### Building the training image
 The image contains the required GCP credentials for logging models. This is passed as a build argument using base64 encoding.
 
@@ -83,6 +90,12 @@ For example:
 ```
 mlflow run . -P max_epochs=5 -P num_samples=50000
 ```
+#### Using a gpu
+To use a gpu in the MLflow docker container, pass the `gpus=all` docker flag
+```
+mlflow run . -A gpus=all
+```
+(ensure you have the [nvidia-container-runtime](https://github.com/NVIDIA/nvidia-container-runtime/) installed)
 ### Registering the model
 To register a model in the [MLflow Model Registry](https://www.mlflow.org/docs/latest/model-registry.html#) from your experiment,
 pass the `model_name` parameter.  
