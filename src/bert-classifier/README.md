@@ -90,8 +90,13 @@ For example:
 ```
 mlflow run . -P max_epochs=5 -P num_samples=50000
 ```
+
+To prevent the model artifacts being uploaded to the tracking server (useful if upload is timing out) set
+```
+mlflow run . -P save_model=''
+```
 #### Using a gpu
-To use a gpu in the MLflow docker container, pass the `gpus=all` docker flag
+To use a gpu in the MLflow docker container, use the `gpus` docker flag, e.g.
 ```
 mlflow run . -A gpus=all
 ```

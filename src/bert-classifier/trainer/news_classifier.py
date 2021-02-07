@@ -213,13 +213,9 @@ class NewsClassifier(nn.Module):
             print(f"Epoch {epoch + 1}/{self.EPOCHS}")
 
             train_acc, train_loss = self.train_epoch(model)
-            mlflow.log_metric("train_acc", float(train_acc))
-            mlflow.log_metric("train_loss", float(train_loss))
             print(f"Train loss {train_loss} accuracy {train_acc}")
 
             val_acc, val_loss = self.eval_model(model, self.val_data_loader)
-            mlflow.log_metric("val_acc", float(val_acc))
-            mlflow.log_metric("val_loss", float(val_loss))
             print(f"Val   loss {val_loss} accuracy {val_acc}")
 
             history["train_acc"].append(train_acc)
@@ -363,7 +359,8 @@ if __name__ == "__main__":
         "--save_model",
         type=str,
         default='',
-        help="For Saving the current Model",
+        help="Whether to log the model to MLflow, useful for parameter tuning. set to '' for off, anything else for on "
+             "(mlflow projects can't do boolean)",
     )
 
     parser.add_argument(
@@ -373,14 +370,10 @@ if __name__ == "__main__":
     )
 
     parser.add_argument(
-        "--model_save_path", type=str, default="models", help="Path to save mlflow model"
-    )
-
-    parser.add_argument(
         "--json_dump",
         type=str,
         default="",
-        help="Filename to output model details (e.g. version) to",
+        help="Filename to output registered model details (e.g. version) to",
     )
 
     parser.add_argument(

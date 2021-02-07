@@ -28,7 +28,7 @@ train() {
     JSON_FILE="$TAG.json"
 
     sed -i -e s/##IMAGE##/"$TAG"/ MLproject
-    mlflow run --no-conda -P json_dump="/tmp/englab/$JSON_FILE" -P model_name=BertModel -P save_model=True .
+    mlflow run --no-conda -P json_dump="/tmp/englab/$JSON_FILE" -P model_name=BertModel .
 
     export_model_version "$JSON_FILE"
 }
