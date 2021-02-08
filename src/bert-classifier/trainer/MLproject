@@ -21,6 +21,5 @@ entry_points:
             --num_samples {num_samples} \
             --save_model {save_model} \
             --vocab_file {vocab_file} \
-            --model_save_path {model_save_path} \
             --model_name {model_name} \
             --json_dump {json_dump}
