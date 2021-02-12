@@ -46,7 +46,7 @@ jobs:
           APPLICATION_CREDENTIALS: ${{ secrets.GOOGLE_APPLICATION_CREDENTIALS }}
         with:
           args: |
-            compute instances start --zone us-east1-b compute-1
+            compute instances start --zone us-east1-b compute-2
       - name: Sleep for 15 seconds
         uses: jakejarvis/wait-action@master
         with:
@@ -58,7 +58,7 @@ jobs:
           APPLICATION_CREDENTIALS: ${{ secrets.GOOGLE_APPLICATION_CREDENTIALS }}
         with:
           args: |
-            compute scp --zone us-east1-b ./src/bert-classifier/trainer/train.sh compute-1:/root
+            compute scp --zone us-east1-b ./src/bert-classifier/trainer/train.sh compute-2:/root
       - name: Run proper training
         id: run_training
         uses: actions-hub/gcloud@master
@@ -68,7 +68,7 @@ jobs:
           MLFLOW_TRACKING_URI: http://35.185.111.8:5000
         with:
           args: |
-            compute ssh --zone us-east1-b compute-1 -- "bash -x /root/train.sh ${MLFLOW_TRACKING_URI} ${GITHUB_SHA}
+            compute ssh --zone us-east1-b compute-2 -- "bash -x /root/train.sh ${MLFLOW_TRACKING_URI} ${GITHUB_SHA}
       - name: Stop training node
         uses: actions-hub/gcloud@master
         if: ${{ always() }}
@@ -77,7 +77,7 @@ jobs:
           APPLICATION_CREDENTIALS: ${{ secrets.GOOGLE_APPLICATION_CREDENTIALS }}
         with:
           args: |
-            compute instances stop --zone us-east1-b compute-1
+            compute instances stop --zone us-east1-b compute-2
       - name: Build and push Torchserve image
         uses: docker/build-push-action@v2
         with:
