@@ -1,0 +1,26 @@
+FROM pandoc/crossref:latest
+
+RUN apk add --no-cache --update --progress  -q git curl sudo fontconfig msttcorefonts-installer && \
+    fc-cache -fv
+
+ARG USERNAME=pandoc
+ARG USER_UID=1000
+ARG USER_GID=1000
+
+RUN adduser $USERNAME -s /bin/sh -D -u $USER_UID $USER_GID && \
+    mkdir -p /etc/sudoers.d && \
+    echo $USERNAME ALL=\(root\) NOPASSWD:ALL > /etc/sudoers.d/$USERNAME && \
+    chmod 0440 /etc/sudoers.d/$USERNAME
+
+USER ${USERNAME}
+
+WORKDIR /home/${USERNAME}/article
+
+# Installing Google Fonts (Lora, Montserrat and Play Fair Display)
+# RUN git clone --depth 1 --filter=blob:none --sparse https://github.com/google/fonts.git .fonts && \
+#     cd .fonts && git sparse-checkout init --cone && \ 
+#     git sparse-checkout set ofl/lora ofl/montserrat ofl/playfairdisplay && \
+#     fc-cache -fv
+
+CMD [ "--bibliography", "references.bib", "-F", "pandoc-crossref", "--citeproc", \
+    "--template", "gh.html5", "--csl", "iee-url.csl", "article.md", "-o", "article.html" ]
